@@ -4,8 +4,14 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-Bank *bank_create()
+char bank_file_path[256]; // Global variable for the bank file path
+
+Bank *bank_create(const char *bank_file)
 {
+    // Store bank file path globally
+    strncpy(bank_file_path, bank_file, sizeof(bank_file_path) - 1);
+    bank_file_path[sizeof(bank_file_path) - 1] = '\0'; // Ensure null termination
+
     Bank *bank = (Bank *)malloc(sizeof(Bank));
     if (bank == NULL)
     {
@@ -29,6 +35,21 @@ Bank *bank_create()
 
     // Set up the protocol state
     // TODO set up more, as needed
+    // Load users from file
+    FILE *fp = fopen(bank_file, "r");
+    if (!fp)
+    {
+        perror("Error opening bank initialization file");
+        exit(64);
+    }
+
+    char name[251], pin[5];
+    int balance;
+    while (fscanf(fp, "%250s %4s %d", name, pin, &balance) == 3)
+    {
+        create_user(name, pin, balance);
+    }
+    fclose(fp);
 
     return bank;
 }
@@ -54,7 +75,6 @@ ssize_t bank_recv(Bank *bank, char *data, size_t max_data_len)
     // Returns the number of bytes received; negative on error
     return recvfrom(bank->sockfd, data, max_data_len, 0, NULL, NULL);
 }
-
 
 typedef struct User
 {
@@ -115,6 +135,24 @@ void deposit(char *name, int amount)
     }
 
     user->balance += amount;
+    // Save updated balances back to the bank file
+    FILE *fp = fopen(bank_file_path, "w");
+    if (!fp)
+    {
+        printf("Error writing to bank file\n");
+        return;
+    }
+
+    // Rewrite all users with updated balances
+    for (int i = 0; i < MAX_USERS; i++)
+    {
+        for (User *u = users[i]; u; u = u->next)
+        {
+            fprintf(fp, "%s %s %d\n", u->name, u->pin, u->balance);
+        }
+    }
+    fclose(fp);
+
     printf("$%d added to %s's account\n", amount, name);
 }
 
@@ -137,7 +175,7 @@ void check_balance(char *name)
     printf("$%d\n", user->balance);
 }
 
-void create_user(char *name, char *pin, int balance)
+void create_user(const char *name, const char *pin, int balance)
 {
     if (!name || !pin || balance < 0 || strlen(name) > 250 || strlen(pin) != 4)
     {
@@ -176,9 +214,19 @@ void create_user(char *name, char *pin, int balance)
     fprintf(f, "%s\n", pin); // Store the PIN in the card
     fclose(f);
 
+    // Append new user to the bank file
+    FILE *bank_fp = fopen(bank_file_path, "a");
+    if (!bank_fp)
+    {
+        printf("Error writing to bank file\n");
+        free(new_user);
+        return;
+    }
+    fprintf(bank_fp, "%s %s %d\n", name, pin, balance);
+    fclose(bank_fp);
+
     printf("Created user %s\n", name);
 }
-
 
 void bank_process_remote_command(Bank *bank, char *command, size_t len)
 {
@@ -187,7 +235,7 @@ void bank_process_remote_command(Bank *bank, char *command, size_t len)
 
     sscanf(command, "%s", cmd);
 
-    printf("Received command: %s\n", command);
+    // printf("Received command: %s\n", command);
     if (strcmp(cmd, "check-user") == 0)
     {
         if (sscanf(command, "%*s %250s", user) != 1)
@@ -251,6 +299,24 @@ void bank_process_remote_command(Bank *bank, char *command, size_t len)
         }
 
         account->balance -= amount;
+
+        // Rewrite bank file with updated balances
+        FILE *fp = fopen(bank_file_path, "w");
+        if (!fp)
+        {
+            bank_send(bank, "Error updating bank file", 24);
+            return;
+        }
+
+        for (int i = 0; i < MAX_USERS; i++)
+        {
+            for (User *u = users[i]; u; u = u->next)
+            {
+                fprintf(fp, "%s %s %d\n", u->name, u->pin, u->balance);
+            }
+        }
+        fclose(fp);
+
         char response[50];
         snprintf(response, sizeof(response), "$%d dispensed", amount);
         bank_send(bank, response, strlen(response));
@@ -274,7 +340,6 @@ void bank_process_remote_command(Bank *bank, char *command, size_t len)
     fputs(command, stdout);
     */
 }
-
 
 void bank_process_local_command(Bank *bank, char *command, size_t len)
 {

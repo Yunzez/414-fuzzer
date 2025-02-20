@@ -19,7 +19,8 @@ int main(int argc, char**argv)
    char sendline[1000];
    char recvline[1000];
 
-   Bank *bank = bank_create();
+    char *bank_file = argv[1];
+   Bank *bank = bank_create(bank_file);
 
    printf("%s", prompt);
    fflush(stdout);

@@ -31,8 +31,10 @@ typedef struct _Bank
     // TODO add more, as needed
 } Bank;
 
-Bank* bank_create();
+Bank* bank_create(const char *bank_file);
 void bank_free(Bank *bank);
+void create_user(const char *name, const char *pin, int balance);
+
 ssize_t bank_send(Bank *bank, char *data, size_t data_len);
 ssize_t bank_recv(Bank *bank, char *data, size_t max_data_len);
 void bank_process_local_command(Bank *bank, char *command, size_t len);
